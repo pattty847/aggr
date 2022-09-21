@@ -1,4 +1,11 @@
-import { AggregatedTrade, AggregatorPayload, AggregatorSettings, Connection, Trade, Volumes } from '@/types/test'
+import {
+  AggregatedTrade,
+  AggregatorPayload,
+  AggregatorSettings,
+  Connection,
+  Trade,
+  Volumes
+} from '@/types/types'
 import { exchanges, getExchangeById } from './exchanges'
 import { parseMarket } from './helpers/utils'
 
@@ -23,13 +30,17 @@ class Aggregator {
   private aggregationTimeouts: { [identifier: string]: number } = {}
   private pendingTrades: Trade[] = []
   private marketsStats: {
-    [marketId: string]: { initialPrice?: number; decimals?: number; price: number; volume?: number; volumeDelta?: number }
+    [marketId: string]: {
+      initialPrice?: number
+      decimals?: number
+      price: number
+      volume?: number
+      volumeDelta?: number
+    }
   } = {}
   private _connectionChangeNoticeTimeout: number
 
   constructor() {
-    console.info(`new worker instance`)
-
     this.bindExchanges()
     this.startPriceInterval()
 
@@ -79,7 +90,11 @@ class Aggregator {
 
     if (bucketsDefinition.length) {
       console.log('[worker] update buckets using :', bucketsDefinition)
-      console.debug('[worker] previous buckets :', { ...this.buckets }, this.activeBuckets)
+      console.debug(
+        '[worker] previous buckets :',
+        { ...this.buckets },
+        this.activeBuckets
+      )
     }
 
     for (const bucketId in bucketsDefinition) {
@@ -99,7 +114,10 @@ class Aggregator {
 
         if (!this.connections[market]) {
           // connection referenced in bucket doesn't exists
-          console.warn('attempted to activate bucket on inexistant connection', market)
+          console.warn(
+            'attempted to activate bucket on inexistant connection',
+            market
+          )
           continue
         }
 
@@ -115,7 +133,10 @@ class Aggregator {
     }
 
     for (const market in this.connections) {
-      if (this.connections[market].bucket && bucketEnabledMarkets.indexOf(market) === -1) {
+      if (
+        this.connections[market].bucket &&
+        bucketEnabledMarkets.indexOf(market) === -1
+      ) {
         // destroy market's bucket (not referenced any buckets anymore)
         console.log('[worker] remove market bucket', market)
         this.connections[market].bucket = null
@@ -131,12 +152,20 @@ class Aggregator {
     }
 
     if (activeBuckets.length) {
-      console.log('[worker] finished updating buckets (active buckets: ', activeBuckets, ')')
+      console.log(
+        '[worker] finished updating buckets (active buckets: ',
+        activeBuckets,
+        ')'
+      )
     }
 
     if (activeBuckets.length && !this.activeBuckets.length) {
       this.startStatsInterval()
-    } else if (this.activeBuckets.length && !activeBuckets.length && this['_statsInterval']) {
+    } else if (
+      this.activeBuckets.length &&
+      !activeBuckets.length &&
+      this['_statsInterval']
+    ) {
       this.clearInterval('stats')
       this['_statsInterval'] = null
       console.debug(`[worker] stopped statsInterval timer`)
@@ -159,7 +188,7 @@ class Aggregator {
         trade.originalPrice = this.marketsStats[marketKey].price || trade.price
       }
 
-      trade.count = 1
+      trade.count = trade.count || 1
 
       this.processTrade(trade)
     }
@@ -184,10 +213,14 @@ class Aggregator {
       if (this.onGoingAggregations[marketKey]) {
         const aggTrade = this.onGoingAggregations[marketKey]
 
-        if (aggTrade.timestamp + this.settings.aggregationLength > trade.timestamp && aggTrade.side === trade.side) {
+        if (
+          aggTrade.timestamp + this.settings.aggregationLength >
+            trade.timestamp &&
+          aggTrade.side === trade.side
+        ) {
           aggTrade.size += trade.size
           aggTrade.price = trade.price
-          aggTrade.count++
+          aggTrade.count += trade.count || 1
           continue
         } else {
           this.pendingTrades.push(this.processTrade(aggTrade))
@@ -196,7 +229,7 @@ class Aggregator {
 
       trade.originalPrice = this.marketsStats[marketKey].price || trade.price
 
-      trade.count = 1
+      trade.count = trade.count || 1
       this.aggregationTimeouts[marketKey] = now + this.baseAggregationTimeout
       this.onGoingAggregations[marketKey] = trade
     }
@@ -235,7 +268,11 @@ class Aggregator {
       if (this.onGoingAggregations[tradeKey]) {
         const aggTrade = this.onGoingAggregations[tradeKey]
 
-        if (aggTrade.timestamp + this.settings.aggregationLength > trade.timestamp && aggTrade.side === trade.side) {
+        if (
+          aggTrade.timestamp + this.settings.aggregationLength >
+            trade.timestamp &&
+          aggTrade.side === trade.side
+        ) {
           aggTrade.size += trade.size
           aggTrade.count++
           continue
@@ -255,23 +292,32 @@ class Aggregator {
 
     if (this.settings.calculateSlippage) {
       if (this.settings.calculateSlippage === 'price') {
-        trade.slippage = Math.round((trade.price - trade.originalPrice + Number.EPSILON) * 10) / 10
+        trade.slippage =
+          Math.round(
+            (trade.price - trade.originalPrice + Number.EPSILON) * 10
+          ) / 10
         if (Math.abs(trade.slippage) / trade.price < 0.00025) {
           trade.slippage = null
         }
       } else if (this.settings.calculateSlippage === 'bps') {
         if (trade.side === 'buy') {
-          trade.slippage = Math.floor(((trade.price - trade.originalPrice) / trade.originalPrice) * 10000)
+          trade.slippage = Math.floor(
+            ((trade.price - trade.originalPrice) / trade.originalPrice) * 10000
+          )
         } else {
-          trade.slippage = Math.floor(((trade.originalPrice - trade.price) / trade.price) * 10000)
+          trade.slippage = Math.floor(
+            ((trade.originalPrice - trade.price) / trade.price) * 10000
+          )
         }
       }
     }
 
-    trade.amount = (this.settings.preferQuoteCurrencySize ? trade.price : 1) * trade.size
+    trade.amount =
+      (this.settings.preferQuoteCurrencySize ? trade.price : 1) * trade.size
 
     this.marketsStats[marketKey].volume += trade.amount
-    this.marketsStats[marketKey].volumeDelta += trade.amount * (trade.side === 'buy' ? 1 : -1)
+    this.marketsStats[marketKey].volumeDelta +=
+      trade.amount * (trade.side === 'buy' ? 1 : -1)
 
     this.marketsStats[marketKey].price = trade.price
 
@@ -294,7 +340,8 @@ class Aggregator {
   processLiquidation(trade: Trade): Trade {
     const marketKey = trade.exchange + ':' + trade.pair
 
-    trade.amount = (this.settings.preferQuoteCurrencySize ? trade.price : 1) * trade.size
+    trade.amount =
+      (this.settings.preferQuoteCurrencySize ? trade.price : 1) * trade.size
 
     if (this.connections[marketKey].bucket) {
       this.connections[marketKey].bucket['l' + trade.side] += trade.amount
@@ -366,7 +413,10 @@ class Aggregator {
 
       this.buckets[bucketId].timestamp = timestamp
 
-      ctx.postMessage({ op: 'bucket-' + bucketId, data: this.buckets[bucketId] })
+      ctx.postMessage({
+        op: 'bucket-' + bucketId,
+        data: this.buckets[bucketId]
+      })
 
       this.clearBucket(this.buckets[bucketId])
     }
@@ -471,7 +521,12 @@ class Aggregator {
           data: {
             id: 'connections',
             type: 'success',
-            title: this.connectionsCount + ' connections (' + (this.connectionChange > 0 ? '+' : '') + this.connectionChange + ')'
+            title:
+              this.connectionsCount +
+              ' connections (' +
+              (this.connectionChange > 0 ? '+' : '') +
+              this.connectionChange +
+              ')'
           }
         })
       }
@@ -555,7 +610,9 @@ class Aggregator {
           await exchange.getProducts()
         }
 
-        const estimatedTimeToConnectThemAll = exchange.getEstimatedTimeToConnect(marketsByExchange[exchangeId].length)
+        const estimatedTimeToConnectThemAll = exchange.getEstimatedTimeToConnect(
+          marketsByExchange[exchangeId].length
+        )
 
         if (estimatedTimeToConnectThemAll > 1000 * 20) {
           ctx.postMessage({
@@ -564,7 +621,9 @@ class Aggregator {
               id: exchangeId + '-connection-delay',
               type: 'warning',
               timeout: estimatedTimeToConnectThemAll,
-              title: `Connecting to ${marketsByExchange[exchangeId].length} markets on ${exchangeId}\nThis could take some time (about ${Math.round(
+              title: `Connecting to ${
+                marketsByExchange[exchangeId].length
+              } markets on ${exchangeId}\nThis could take some time (about ${Math.round(
                 estimatedTimeToConnectThemAll / 1000
               )}s)`
             }
@@ -661,7 +720,10 @@ class Aggregator {
     if (this['_aggrInterval']) {
       return
     }
-    this['_aggrInterval'] = self.setInterval(this.emitPendingTrades.bind(this), 50)
+    this['_aggrInterval'] = self.setInterval(
+      this.emitPendingTrades.bind(this),
+      50
+    )
   }
 
   startStatsInterval() {
@@ -678,11 +740,17 @@ class Aggregator {
     }
   }
 
-  async fetchExchangeProducts({ exchangeId, forceFetch }: { exchangeId: string; forceFetch?: boolean }, trackingId) {
-    await getExchangeById(exchangeId).getProducts(forceFetch)
+  async fetchExchangeProducts(
+    { exchangeId, forceFetch }: { exchangeId: string; forceFetch?: boolean },
+    trackingId
+  ) {
+    const productsData = await getExchangeById(exchangeId).getProducts(
+      forceFetch
+    )
 
     ctx.postMessage({
       op: 'fetchExchangeProducts',
+      data: productsData,
       trackingId: trackingId
     })
   }

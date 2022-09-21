@@ -57,7 +57,9 @@ export default class extends Exchange {
     }
 
     if (api._connected.length === 0) {
-      const chanId = Object.keys(this.channels).find(id => this.channels[id].name === 'status')
+      const chanId = Object.keys(this.channels).find(
+        id => this.channels[id].name === 'status'
+      )
 
       if (chanId) {
         api.send(
@@ -73,7 +75,9 @@ export default class extends Exchange {
       return true
     }
 
-    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === pair)
+    const channelsToUnsubscribe = Object.keys(this.channels).filter(
+      id => this.channels[id].pair === pair
+    )
 
     if (!channelsToUnsubscribe.length) {
       console.log(
@@ -137,7 +141,13 @@ export default class extends Exchange {
       return this.emitLiquidations(
         api.id,
         json[1]
-          .filter(a => api._connected.indexOf(a[4].substring(1)) !== -1)
+          .filter(
+            liquidation =>
+              !liquidation[8] &&
+              !liquidation[10] &&
+              !liquidation[11] &&
+              api._connected.indexOf(liquidation[4].substring(1)) !== -1
+          )
           .map(a => {
             const pair = a[4].substring(1)
 

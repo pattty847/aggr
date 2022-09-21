@@ -2,21 +2,26 @@ import aggregatorService from '@/services/aggregatorService'
 import Vue from 'vue'
 import { ActionTree, GetterTree, Module, MutationTree } from 'vuex'
 import { ModulesState } from '.'
-import { getMarketProduct, indexedProducts, requestProducts } from '../services/productsService'
 
 export interface ExchangeSettings {
   disabled?: boolean
-  fetched?: boolean
 }
 
-export type ExchangesState = { [exchangeId: string]: ExchangeSettings } & { _id: string; _exchanges: string[] }
+export type ExchangesState = { [exchangeId: string]: ExchangeSettings } & {
+  _id: string
+  _exchanges: string[]
+}
 
-const supportedExchanges = process.env.VUE_APP_EXCHANGES.split(',').map(id => id.toUpperCase())
+const supportedExchanges = process.env.VUE_APP_EXCHANGES.split(',').map(id =>
+  id.toUpperCase()
+)
 
 const state = supportedExchanges.reduce(
   (exchangesState: ExchangesState, id: string) => {
     exchangesState[id] = {
-      disabled: /HITBTC|PHEMEX|BINANCE_US|SERUM|OKEX|HUOBI|BITSTAMP|KRAKEN|POLONIEX/.test(id)
+      disabled: /HITBTC|PHEMEX|BINANCE_US|SERUM|OKEX|HUOBI|BITSTAMP|KRAKEN|POLONIEX/.test(
+        id
+      )
     }
 
     return exchangesState
@@ -29,7 +34,8 @@ const state = supportedExchanges.reduce(
 state._id = 'exchanges'
 
 const getters = {
-  getExchanges: state => Object.keys(state).filter(id => id !== 'INDEX' && !/^_/.test(id))
+  getExchanges: state =>
+    Object.keys(state).filter(id => id !== 'INDEX' && !/^_/.test(id))
 } as GetterTree<ExchangesState, ModulesState>
 
 const actions = {
@@ -53,13 +59,7 @@ const actions = {
       }
 
       state._exchanges.push(id)
-      state[id].fetched = false
       rootState.app.activeExchanges[id] = !state[id].disabled
-    }
-  },
-  async requestExchangesProducts({ getters }) {
-    for (const id of getters.getExchanges) {
-      await requestProducts(id)
     }
   },
   async toggleExchange({ commit, state, dispatch }, id: string) {
@@ -75,28 +75,25 @@ const actions = {
   },
   async disconnect({ rootState }, id: string) {
     const exchangeRegex = new RegExp(`^${id}:`, 'i')
-    const markets = Object.keys(rootState.panes.marketsListeners).filter(p => exchangeRegex.test(p))
+    const markets = Object.keys(rootState.panes.marketsListeners).filter(p =>
+      exchangeRegex.test(p)
+    )
 
-    console.log(`[exchanges.${id}] manually disconnecting ${markets.join(', ')}`)
+    console.log(
+      `[exchanges.${id}] manually disconnecting ${markets.join(', ')}`
+    )
 
     await aggregatorService.disconnect(markets)
   },
   async connect({ rootState }, id: string) {
     const exchangeRegex = new RegExp(`^${id}:`, 'i')
-    const markets = Object.keys(rootState.panes.marketsListeners).filter(p => exchangeRegex.test(p))
+    const markets = Object.keys(rootState.panes.marketsListeners).filter(p =>
+      exchangeRegex.test(p)
+    )
 
     console.log(`[exchanges.${id}] manually connecting ${markets.join(', ')}`)
 
     await aggregatorService.connect(markets)
-  },
-  indexExchangeProducts(store, { exchangeId, symbols }: { exchangeId: string; symbols: string[] }) {
-    const products = []
-
-    for (let i = 0; i < symbols.length; i++) {
-      products.push(getMarketProduct(exchangeId, symbols[i]))
-    }
-
-    indexedProducts[exchangeId] = products
   }
 } as ActionTree<ExchangesState, ModulesState>
 
@@ -109,9 +106,6 @@ const mutations = {
     }
 
     Vue.set(state[id], 'disabled', disabled)
-  },
-  SET_FETCHED: (state, id: string) => {
-    Vue.set(state[id], 'fetched', true)
   }
 } as MutationTree<ExchangesState>
 

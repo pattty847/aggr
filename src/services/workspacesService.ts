@@ -3,13 +3,28 @@ import defaultPresets from '@/store/defaultPresets.json'
 import defaultPanes from '@/store/defaultPanes.json'
 import store, { boot } from '@/store'
 import { IndicatorSettings } from '@/store/panesSettings/chart'
-import { GifsStorage, ImportedSound, MarketAlerts, Preset, PresetType, ProductsStorage, Workspace } from '@/types/test'
-import { downloadAnything, parseVersion, randomString, slugify, uniqueName } from '@/utils/helpers'
+import {
+  GifsStorage,
+  ImportedSound,
+  MarketAlerts,
+  Preset,
+  PresetType,
+  ProductsStorage,
+  Workspace
+} from '@/types/types'
+import {
+  downloadAnything,
+  parseVersion,
+  randomString,
+  slugify,
+  uniqueName
+} from '@/utils/helpers'
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb'
 import { databaseUpgrades, workspaceUpgrades } from './migrations'
 import { PanesState } from '@/store/panes'
 import alertService from './alertService'
 import dialogService from './dialogService'
+import { stripStable } from './productsService'
 
 export interface AggrDB extends DBSchema {
   products: {
@@ -56,6 +71,7 @@ class WorkspacesService {
   latestAppVersion: any
   latestDatabaseVersion: any
   latestWorkspaceVersion: any
+  pairsFromURL: string[]
   defaultInserted = false
 
   constructor() {
@@ -63,9 +79,17 @@ class WorkspacesService {
       this.urlStrategy = 'hash'
     }
 
-    this.latestDatabaseVersion = Math.max.apply(null, Object.keys(databaseUpgrades))
-    this.latestWorkspaceVersion = Math.max.apply(null, Object.keys(workspaceUpgrades))
-    this.previousAppVersion = parseVersion(localStorage.getItem('version') || '-1')
+    this.latestDatabaseVersion = Math.max.apply(
+      null,
+      Object.keys(databaseUpgrades)
+    )
+    this.latestWorkspaceVersion = Math.max.apply(
+      null,
+      Object.keys(workspaceUpgrades)
+    )
+    this.previousAppVersion = parseVersion(
+      localStorage.getItem('version') || '-1'
+    )
     this.latestAppVersion = parseVersion(process.env.VUE_APP_VERSION)
   }
 
@@ -80,10 +104,16 @@ class WorkspacesService {
     }
 
     alertService.syncTriggeredAlerts()
+
+    const workspace = await this.getCurrentWorkspace()
+
+    this.setCurrentWorkspace(workspace)
   }
 
   async createDatabase() {
-    console.info(`openDB 'aggr' (latest database v${this.latestDatabaseVersion} workspace v${this.latestWorkspaceVersion})`)
+    console.info(
+      `openDB 'aggr' (latest database v${this.latestDatabaseVersion} workspace v${this.latestWorkspaceVersion})`
+    )
 
     let promiseOfUpgrade: Promise<void>
 
@@ -105,7 +135,11 @@ class WorkspacesService {
             }
           })
 
-          for (let i = oldVersion ? oldVersion + 1 : oldVersion; i <= newVersion; i++) {
+          for (
+            let i = oldVersion ? oldVersion + 1 : oldVersion;
+            i <= newVersion;
+            i++
+          ) {
             console.debug(`[idb] migrating v${i}`)
 
             if (typeof databaseUpgrades[i] === 'function') {
@@ -114,7 +148,9 @@ class WorkspacesService {
           }
         },
         blocked() {
-          alert('Aggr is trying to upgrade.\nClose any other window with aggr open in order to allow it to upgrade.')
+          alert(
+            'Aggr is trying to upgrade.\nClose any other window with aggr open in order to allow it to upgrade.'
+          )
           console.log(`[idb] blocked received`)
           // …
         },
@@ -151,7 +187,11 @@ class WorkspacesService {
     }
 
     while (workspace.version < this.latestWorkspaceVersion) {
-      console.log(`[workspace] upgrade workspace ${workspace.id} (${workspace.version} -> ${workspace.version + 1})`)
+      console.log(
+        `[workspace] upgrade workspace ${workspace.id} (${
+          workspace.version
+        } -> ${workspace.version + 1})`
+      )
 
       workspace.version++
 
@@ -180,14 +220,22 @@ class WorkspacesService {
     for (const id in defaultIndicators) {
       const indicator: IndicatorSettings = defaultIndicators[id]
 
-      if (parseVersion(indicator.version) <= this.previousAppVersion || existing.indexOf(id) !== -1) {
+      if (
+        parseVersion(indicator.version) <= this.previousAppVersion ||
+        existing.indexOf(id) !== -1
+      ) {
         continue
       }
 
       console.log(`[idb/defaultIndicators] insert default indicator ${id}`)
 
       try {
-        await tx.store.add({ ...indicator, id, createdAt: now, updatedAt: null })
+        await tx.store.add({
+          ...indicator,
+          id,
+          createdAt: now,
+          updatedAt: null
+        })
       } catch (error) {
         console.error(error)
         throw error
@@ -210,7 +258,10 @@ class WorkspacesService {
     let added = 0
 
     for (const preset of defaultPresets as Preset[]) {
-      if (parseVersion(preset.version) < this.previousAppVersion || existing.indexOf(preset.name) !== -1) {
+      if (
+        parseVersion(preset.version) < this.previousAppVersion ||
+        existing.indexOf(preset.name) !== -1
+      ) {
         continue
       }
 
@@ -228,23 +279,52 @@ class WorkspacesService {
     await tx.done
   }
 
+  /**
+   * Use url params or local storage to retrieve current workspace
+   * If markets are passed in the url, mutate the workspace with new markets before return
+   * @returns {Workspace} workspace ready to be set on
+   */
   async getCurrentWorkspace() {
-    let id
-
-    if (this.urlStrategy === 'hash') {
-      id = location.hash.substring(1)
-    } else {
-      id = location.pathname.substring(1)
-    }
-
-    if (!id.length || !/^[a-zA-Z0-9]{4}$/.test(id)) {
-      id = localStorage.getItem('workspace')
-    }
-
+    const lastWorkspaceId = localStorage.getItem('workspace')
+    let urlWorkspaceId: string
+    let urlPairs: string
     let workspace: Workspace
 
-    if (!id || !(workspace = await this.getWorkspace(id))) {
-      workspace = await this.createWorkspace()
+    if (this.urlStrategy === 'hash') {
+      urlWorkspaceId = location.hash.substring(1)
+    } else {
+      ;[, urlWorkspaceId, urlPairs] = decodeURIComponent(
+        location.pathname
+      ).split('/')
+    }
+
+    if (urlWorkspaceId) {
+      // try get workspace from id in the url
+      workspace = await this.getWorkspace(urlWorkspaceId)
+    }
+
+    if (!workspace && lastWorkspaceId) {
+      // try get workspace from id in the localStorage
+      workspace = await this.getWorkspace(lastWorkspaceId)
+    }
+
+    if (!workspace) {
+      // create workspace, name it from url (or generate one)
+      workspace = await this.createWorkspace(urlWorkspaceId)
+
+      if (!urlPairs && urlWorkspaceId) {
+        // workspace is new and user passed an id in the url, maybe this id is a pair
+        urlPairs = urlWorkspaceId
+      }
+    } else if (!urlPairs && urlWorkspaceId && urlWorkspaceId !== workspace.id) {
+      // workspace existed but id in the url does not match with it, maybe that's a pair
+      urlPairs = urlWorkspaceId
+    }
+
+    if (urlPairs && urlPairs.trim().length > 4) {
+      this.pairsFromURL = urlPairs
+        .split(/\+|,/)
+        .map(pair => stripStable(pair.toUpperCase()))
     }
 
     return workspace
@@ -256,7 +336,10 @@ class WorkspacesService {
     if (this.workspace) {
       previousWorkspaceId = this.workspace.id
 
-      window.location.href = window.location.href.replace(previousWorkspaceId, workspace.id)
+      window.location.href = window.location.href.replace(
+        previousWorkspaceId,
+        workspace.id
+      )
 
       if (this.urlStrategy === 'hash') {
         window.location.reload()
@@ -277,7 +360,7 @@ class WorkspacesService {
 
     localStorage.setItem('workspace', this.workspace.id)
 
-    await boot(workspace)
+    await boot(workspace, this.pairsFromURL)
 
     return workspace
   }
@@ -297,7 +380,7 @@ class WorkspacesService {
 
     this.workspace.states[stateId] = state
 
-    return this.saveWorkspace()
+    return this.saveWorkspace(this.workspace)
   }
 
   cleanState(state) {
@@ -312,12 +395,18 @@ class WorkspacesService {
     return state
   }
 
-  downloadWorkspace() {
-    if (this.workspace.states.panes) {
-      delete (this.workspace.states.panes as PanesState).marketsListeners
+  async downloadWorkspace(id?: string | Workspace) {
+    const workspace = await this.getWorkspace(id)
+
+    if (!workspace) {
+      return
     }
 
-    downloadAnything(this.workspace, this.workspace.id + '_' + slugify(this.workspace.name))
+    if (workspace.states.panes) {
+      delete (workspace.states.panes as PanesState).marketsListeners
+    }
+
+    downloadAnything(workspace, workspace.id + '_' + slugify(workspace.name))
   }
 
   async getState(stateId: string) {
@@ -331,7 +420,9 @@ class WorkspacesService {
       return this.workspace.states[stateId]
     }
 
-    console.debug(`[workspaces] couldn't retrieve workspace's state "${stateId}" (unknown state)`)
+    console.debug(
+      `[workspaces] couldn't retrieve workspace's state "${stateId}" (unknown state)`
+    )
 
     return null
   }
@@ -349,7 +440,7 @@ class WorkspacesService {
       delete this.workspace.states[stateId]
     }
 
-    return this.saveWorkspace()
+    return this.saveWorkspace(this.workspace)
   }
 
   async addWorkspace(workspace: Workspace) {
@@ -369,31 +460,38 @@ class WorkspacesService {
   async makeUniqueWorkspace(workspace: Workspace) {
     const workspaces = await this.getWorkspaces()
 
-    const names = workspaces.map(w => w.name)
-    const ids = workspaces.map(w => w.id)
+    workspace.name = uniqueName(
+      workspace.name || randomString(4),
+      workspaces.map(w => w.name)
+    )
 
-    if (!workspace.name) {
-      workspace.name = 'Untitled'
-    }
-
-    workspace.name = uniqueName(workspace.name, names)
-
-    let id = workspace.id
-
-    while (!id || ids.indexOf(id) !== -1) {
-      id = randomString(4)
-    }
-
-    workspace.id = id
+    workspace.id = uniqueName(
+      slugify(workspace.name),
+      workspaces.map(w => w.id),
+      true,
+      'copy 1'
+    )
   }
 
-  getWorkspace(id: string) {
-    console.debug(`[workspaces] get workspace ${id}`)
+  async getWorkspace(id?: string | Workspace): Promise<Workspace> {
+    let workspace
 
-    return this.db.get('workspaces', id)
+    if (!id || (this.workspace && id === this.workspace.id)) {
+      workspace = this.workspace
+    } else if (typeof id === 'string') {
+      workspace = await this.db.get('workspaces', id)
+    } else if (typeof id === 'object') {
+      workspace = id
+    }
+
+    if (!workspace) {
+      return
+    }
+
+    return workspace
   }
 
-  async createWorkspace() {
+  async createWorkspace(name) {
     const timestamp = Date.now()
 
     const panes = JSON.parse(JSON.stringify(defaultPanes))
@@ -402,7 +500,7 @@ class WorkspacesService {
       version: this.latestWorkspaceVersion,
       createdAt: timestamp,
       updatedAt: null,
-      name: null,
+      name: name,
       id: null,
       states: {
         panes
@@ -411,54 +509,60 @@ class WorkspacesService {
 
     await this.makeUniqueWorkspace(workspace)
 
-    console.debug(`[workspaces] create new workspace ${workspace.name} (${workspace.id})`)
+    console.debug(
+      `[workspaces] create new workspace ${workspace.name} (${workspace.id})`
+    )
 
     await this.db.add('workspaces', workspace)
 
     return await this.getWorkspace(workspace.id)
   }
 
-  async duplicateWorkspace() {
+  async duplicateWorkspace(id?: string | Workspace) {
+    const workspace = await this.getWorkspace(id)
+
+    if (!workspace) {
+      return
+    }
+
     const timestamp = Date.now()
 
-    const workspace: Workspace = JSON.parse(JSON.stringify(this.workspace))
+    const workspaceCopy: Workspace = JSON.parse(JSON.stringify(workspace))
 
-    workspace.createdAt = timestamp
-    workspace.updatedAt = null
+    workspaceCopy.createdAt = timestamp
+    workspaceCopy.updatedAt = null
 
-    await this.makeUniqueWorkspace(workspace)
+    await this.makeUniqueWorkspace(workspaceCopy)
 
-    console.debug(`[workspaces] copy current workspace into ${workspace.name} (${workspace.id})`)
+    console.debug(
+      `[workspaces] copy current workspace into ${workspaceCopy.name} (${workspaceCopy.id})`
+    )
 
-    await this.db.add('workspaces', workspace)
+    await this.db.add('workspaces', workspaceCopy)
 
-    return await this.setCurrentWorkspace(await this.getWorkspace(workspace.id))
+    return await this.setCurrentWorkspace(
+      await this.getWorkspace(workspaceCopy.id)
+    )
   }
 
   getWorkspaces() {
     return this.db.getAllFromIndex('workspaces', 'name')
   }
 
-  async renameWorkspace(name: string) {
-    if (!this.workspace) {
-      throw new Error(`There is no current workspace`)
-    }
+  async renameWorkspace(workspace: Workspace, name: string) {
+    await this.removeWorkspace(workspace.id)
 
-    console.debug(`[workspaces] rename workspace ${this.workspace.name} -> ${name}`)
+    workspace.name = name
 
-    this.workspace.name = name
+    this.makeUniqueWorkspace(workspace)
 
-    return this.saveWorkspace()
+    return this.db.add('workspaces', workspace)
   }
 
-  async saveWorkspace() {
-    if (!this.workspace) {
-      throw new Error(`There is no current workspace`)
-    }
+  async saveWorkspace(workspace: Workspace) {
+    workspace.updatedAt = Date.now()
 
-    this.workspace.updatedAt = Date.now()
-
-    return this.db.put('workspaces', JSON.parse(JSON.stringify(this.workspace)))
+    return this.db.put('workspaces', JSON.parse(JSON.stringify(workspace)))
   }
 
   removeWorkspace(id: string) {
@@ -534,6 +638,10 @@ class WorkspacesService {
     return this.db.getAllFromIndex('indicators', 'name')
   }
 
+  getIndicatorsIds() {
+    return this.db.getAllKeys('indicators')
+  }
+
   deleteIndicator(id: string) {
     return this.db.delete('indicators', id)
   }
@@ -557,7 +665,7 @@ class WorkspacesService {
       confirmOverride &&
       (await this.getPreset(preset.name)) &&
       !(await dialogService.confirm({
-        message: `This preset already exists (${preset.name}).`,
+        message: `This preset "${preset.name}" already exists.`,
         ok: 'Continue anyway',
         cancel: 'Cancel'
       }))
@@ -573,7 +681,10 @@ class WorkspacesService {
   }
 
   getPresetsKeysByType(type: PresetType) {
-    return this.db.getAllKeys('presets', IDBKeyRange.bound(type, type + '|', true, true))
+    return this.db.getAllKeys(
+      'presets',
+      IDBKeyRange.bound(type, type + '|', true, true)
+    )
   }
 
   removePreset(id) {
@@ -650,7 +761,9 @@ class WorkspacesService {
       }
     })
 
-    const workspaces = (await this.getWorkspaces()).sort((a, b) => b.updatedAt - a.updatedAt).map(a => a.id)
+    const workspaces = (await this.getWorkspaces())
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map(a => a.id)
 
     downloadAnything(blob, 'aggr-' + workspaces.join('-'))
   }

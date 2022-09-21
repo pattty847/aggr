@@ -6,7 +6,9 @@ import app, { AppState } from './app'
 import settings, { SettingsState } from './settings'
 import exchanges, { ExchangesState } from './exchanges'
 import panes, { PanesState } from './panes'
-import { Workspace } from '@/types/test'
+import { Workspace } from '@/types/types'
+import { resolvePairs } from '../services/productsService'
+import panesSettings from './panesSettings'
 
 Vue.use(Vuex)
 
@@ -22,7 +24,9 @@ export interface ModulesState {
 }
 
 const store = new Vuex.Store({} as StoreOptions<ModulesState>)
-const modules = { app, settings, exchanges, panes } as AppModuleTree<ModulesState>
+const modules = { app, settings, exchanges, panes } as AppModuleTree<
+  ModulesState
+>
 
 store.subscribe((mutation, state: any) => {
   const moduleId = mutation.type.split('/')[0]
@@ -32,8 +36,10 @@ store.subscribe((mutation, state: any) => {
   }
 })
 
-export async function boot(workspace?: Workspace) {
-  console.log(`[store] booting on workspace "${workspace.name}" (${workspace.id})`)
+export async function boot(workspace?: Workspace, pairsFromURL?: string[]) {
+  console.log(
+    `[store] booting on workspace "${workspace.name}" (${workspace.id})`
+  )
 
   console.info(`loading core module`)
   await registerModule('app', modules['app'])
@@ -54,7 +60,13 @@ export async function boot(workspace?: Workspace) {
   await store.dispatch('exchanges/boot')
 
   for (const paneId in store.state.panes.panes) {
+    if (!panesSettings[store.state.panes.panes[paneId].type]) {
+      await store.dispatch('panes/removePane', paneId)
+      continue
+    }
+
     console.info(`registering pane module ${paneId}`)
+
     await registerModule(paneId, {}, false, store.state.panes.panes[paneId])
 
     await bootPane(paneId)
@@ -62,9 +74,16 @@ export async function boot(workspace?: Workspace) {
 
   store.dispatch('app/setBooted')
 
-  await store.dispatch('panes/refreshMarketsListeners')
+  let marketsOverride
 
-  // await store.dispatch('exchanges/requestExchangesProducts')
+  if (pairsFromURL) {
+    marketsOverride = await resolvePairs(pairsFromURL)
+  }
+
+  await store.dispatch('panes/refreshMarketsListeners', {
+    markets: marketsOverride
+  })
+
   store.commit('app/SET_EXCHANGES_READY')
 }
 

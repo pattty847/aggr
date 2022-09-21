@@ -5,6 +5,7 @@ import { ActionTree, GetterTree, Module, MutationTree } from 'vuex'
 import { ModulesState } from '.'
 import SearchDialog from '../components/SearchDialog.vue'
 import TimeframeDialog from '../components/TimeframeDialog.vue'
+import { getApiSupportedMarkets } from '../services/productsService'
 
 export interface Notice {
   id?: string
@@ -53,12 +54,9 @@ export interface AppState {
   historicalMarkets: string[]
   apiSupportedTimeframes: number[]
   activeExchanges: { [exchangeId: string]: boolean }
-  proxyUrl: string
-  apiUrl: string
   version: string
   buildDate: number | string
   notices: Notice[]
-  optimalDecimal: number
   baseCurrency: string
   baseCurrencySymbol: string
   quoteCurrency: string
@@ -70,15 +68,11 @@ const state = {
   isBooted: false,
   isLoading: false,
   isExchangesReady: false,
-  optimalDecimal: null,
-  pairs: [],
   showSearch: false,
   activeExchanges: {},
   notices: [],
   historicalMarkets: [],
   apiSupportedTimeframes: [],
-  proxyUrl: null,
-  apiUrl: null,
   version: 'DEV',
   buildDate: 'now',
   baseCurrency: 'coin',
@@ -89,13 +83,14 @@ const state = {
 } as AppState
 
 const actions = {
-  async boot({ commit }) {
-    commit('SET_API_SUPPORTED_PAIRS', process.env.VUE_APP_API_SUPPORTED_PAIRS)
-    commit('SET_API_SUPPORTED_TIMEFRAMES', process.env.VUE_APP_API_SUPPORTED_TIMEFRAMES)
+  async boot({ commit, dispatch }) {
+    await dispatch('getApiSupportedPairs')
+    commit(
+      'SET_API_SUPPORTED_TIMEFRAMES',
+      process.env.VUE_APP_API_SUPPORTED_TIMEFRAMES
+    )
     commit('SET_VERSION', process.env.VUE_APP_VERSION)
     commit('SET_BUILD_DATE', process.env.VUE_APP_BUILD_DATE)
-    commit('SET_API_URL', process.env.VUE_APP_API_URL)
-    commit('SET_PROXY_URL', process.env.VUE_APP_PROXY_URL)
   },
   setBooted({ commit }, value = true) {
     commit('SET_BOOTED', value)
@@ -190,7 +185,11 @@ const actions = {
     dialogService.open(SearchDialog, { paneId })
   },
   showTimeframe({ commit, state, rootState }) {
-    if (state.showSearch || !state.focusedPaneId || !rootState[state.focusedPaneId]) {
+    if (
+      state.showSearch ||
+      !state.focusedPaneId ||
+      !rootState[state.focusedPaneId]
+    ) {
       return
     }
 
@@ -204,6 +203,10 @@ const actions = {
     }
 
     commit('TOGGLE_SEARCH', false)
+  },
+  async getApiSupportedPairs({ commit }) {
+    const markets = await getApiSupportedMarkets()
+    commit('SET_HISTORICAL_MARKETS', markets)
   }
 } as ActionTree<AppState, ModulesState>
 
@@ -215,7 +218,11 @@ const mutations = {
     state.isExchangesReady = true
   },
   EXCHANGE_UPDATED(state, exchangeId: string) {
-    Vue.set(state.activeExchanges, exchangeId, !this.state.exchanges[exchangeId].disabled)
+    Vue.set(
+      state.activeExchanges,
+      exchangeId,
+      !this.state.exchanges[exchangeId].disabled
+    )
   },
   TOGGLE_LOADING(state, value) {
     state.isLoading = value ? true : false
@@ -236,23 +243,8 @@ const mutations = {
   TOGGLE_SEARCH(state, value) {
     state.showSearch = typeof value === 'boolean' ? value : !state.showSearch
   },
-  SET_OPTIMAL_DECIMAL(state, value) {
-    state.optimalDecimal = value
-  },
-  SET_API_URL(state, value) {
-    state.apiUrl = value
-  },
-  SET_PROXY_URL(state, value) {
-    state.proxyUrl = value
-  },
-  SET_API_SUPPORTED_PAIRS(state, value) {
-    if (!value) {
-      state.historicalMarkets = []
-    } else if (typeof value === 'string') {
-      state.historicalMarkets = value.split(',').map(a => a.trim())
-    } else {
-      state.historicalMarkets = value
-    }
+  SET_HISTORICAL_MARKETS(state, value) {
+    state.historicalMarkets = value
   },
   SET_API_SUPPORTED_TIMEFRAMES(state, value) {
     if (value && value.trim()) {

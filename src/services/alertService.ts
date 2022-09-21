@@ -1,21 +1,23 @@
-import { handleFetchError } from '@/utils/helpers'
+import { getApiUrl, handleFetchError } from '@/utils/helpers'
 import aggregatorService from './aggregatorService'
 import workspacesService from './workspacesService'
 
 class AlertService {
-  private url = process.env.VUE_APP_ALERT_URL
   private publicVapidKey = process.env.VUE_APP_PUBLIC_VAPID_KEY
   private pushSubscription: PushSubscription
+  private url: string
 
   private _promiseOfSync: Promise<void>
 
-  get supported() {
-    return this.publicVapidKey && this.url
+  constructor() {
+    this.url = getApiUrl('alert')
   }
 
   urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+    const base64 = (base64String + padding)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
 
     const rawData = window.atob(base64)
     const outputArray = new Uint8Array(rawData.length)
@@ -104,7 +106,7 @@ class AlertService {
   }
 
   async getPushSubscription() {
-    if (!this.supported) {
+    if (!this.publicVapidKey) {
       return
     }
 
@@ -119,7 +121,9 @@ class AlertService {
         JSON.stringify(
           await register.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: this.urlBase64ToUint8Array(this.publicVapidKey)
+            applicationServerKey: this.urlBase64ToUint8Array(
+              this.publicVapidKey
+            )
           })
         )
       )
@@ -160,8 +164,14 @@ class AlertService {
     if (marketPrice) {
       const percentChangeToAlert = (price / marketPrice - 1) * 100
 
-      if (price < 0 || percentChangeToAlert > 100 || percentChangeToAlert < -50) {
-        console.error(`[alert] price ${price} is too far from market price (${marketPrice})`)
+      if (
+        price < 0 ||
+        percentChangeToAlert > 100 ||
+        percentChangeToAlert < -50
+      ) {
+        console.error(
+          `[alert] price ${price} is too far from market price (${marketPrice})`
+        )
         return false
       }
     }
@@ -169,7 +179,11 @@ class AlertService {
     return true
   }
 
-  async toggleAlert(market: string, price: number, unsubscribe?: boolean): Promise<boolean> {
+  async toggleAlert(
+    market: string,
+    price: number,
+    unsubscribe?: boolean
+  ): Promise<boolean> {
     const subscription = await this.getPushSubscription()
 
     if (!subscription) {
@@ -184,7 +198,13 @@ class AlertService {
 
     return fetch(this.url, {
       method: 'POST',
-      body: JSON.stringify({ ...subscription, origin, market, price, unsubscribe }),
+      body: JSON.stringify({
+        ...subscription,
+        origin,
+        market,
+        price,
+        unsubscribe
+      }),
       headers: {
         'Content-Type': 'application/json'
       }
@@ -204,7 +224,11 @@ class AlertService {
       })
   }
 
-  async moveAlert(market: string, price: number, newPrice: number): Promise<boolean> {
+  async moveAlert(
+    market: string,
+    price: number,
+    newPrice: number
+  ): Promise<boolean> {
     const subscription = await this.getPushSubscription()
 
     if (!subscription) {
@@ -219,7 +243,13 @@ class AlertService {
 
     return fetch(this.url, {
       method: 'POST',
-      body: JSON.stringify({ ...subscription, origin, market, price, newPrice }),
+      body: JSON.stringify({
+        ...subscription,
+        origin,
+        market,
+        price,
+        newPrice
+      }),
       headers: {
         'Content-Type': 'application/json'
       }
