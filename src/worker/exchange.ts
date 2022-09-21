@@ -3,6 +3,9 @@ import { EventEmitter } from 'eventemitter3'
 import { sleep } from './helpers/utils'
 import { dispatchAsync } from './helpers/com'
 import { randomString } from './helpers/utils'
+
+// Interface which extends a WebSocket that will be used to cast our socket later
+// createWs(pair) will be the function that contains the Api interface object
 interface Api extends WebSocket {
   _id: string
   _pending: string[]
@@ -153,9 +156,13 @@ class Exchange extends EventEmitter {
   createWs(pair) {
     const url = this.getUrl(pair)
 
+    // Extention of Api interface created above where Api extends WebSocket
     const api = new WebSocket(url) as Api
+
+    // Set a random string as the ID
     api._id = randomString()
 
+    // Display to debug that we are initiating a new websocket connection
     console.debug(`[${this.id}] initiate new ws connection ${url} (${api._id}) for pair ${pair}`)
 
     api.binaryType = 'arraybuffer'
